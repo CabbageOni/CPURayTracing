@@ -1,9 +1,15 @@
 #include <Windows.h>
 
 #include "winAPI.h"
+#include "vector.h"
+#include "ray.h"
 
-static HWND InitializeWindow(const HINSTANCE& h_inst);
+using Time = LONGLONG;
+
 static LRESULT CALLBACK MainWindowCallback(HWND hwnd, UINT u_msg, WPARAM w_param, LPARAM l_param);
+static Time CurrentTime();
+static float ElapsedTime(Time from, Time to);
+static HWND InitializeWindow(const HINSTANCE& h_inst);
 static void UpdateClientRect(const HWND& hwnd);
 static void Render(const HWND& hwnd);
 static void ReallocateFrame(int new_width, int new_height, int new_stride);
@@ -14,12 +20,20 @@ static void RenderFrame();
 struct WinAPI winAPI;
 struct Frame frame;
 
+static int draw_flag = 0;
+static LARGE_INTEGER fixed_frequency;
+const float framerate_target_dt = .016f;
+
 int CALLBACK WinMain(HINSTANCE h_instance, HINSTANCE, LPSTR, int)
 {
   winAPI.window_handle = InitializeWindow(h_instance);
   winAPI.instance_handle = h_instance;
   if (!winAPI.window_handle) return 0;
 
+  UpdateWindow(winAPI.window_handle);
+
+  Time last_frame_time = CurrentTime();
+  QueryPerformanceFrequency(&fixed_frequency);
   MSG msg;
   while (!winAPI.quit)
   {
@@ -28,10 +42,39 @@ int CALLBACK WinMain(HINSTANCE h_instance, HINSTANCE, LPSTR, int)
       TranslateMessage(&msg);
       DispatchMessage(&msg);
     }
+    InvalidateRect(winAPI.window_handle, NULL, FALSE);
+
+    Time current_time = CurrentTime();
+    float dt = ElapsedTime(last_frame_time, current_time);
+    int ms_to_sleep = (int)(framerate_target_dt * 1000.f) - (int)(dt * 1000.f + 2.f);
+    if (ms_to_sleep > 0 && dt < framerate_target_dt)
+      Sleep(ms_to_sleep);
+    
+    current_time = CurrentTime();
+    dt = ElapsedTime(last_frame_time, current_time);
+    while (dt < framerate_target_dt)
+    {
+      current_time = CurrentTime();
+      dt = ElapsedTime(last_frame_time, current_time);
+    }
+    last_frame_time = current_time;
   }
 
   DeallocateFrame();
   return 0;
+}
+
+Time CurrentTime()
+{
+  LARGE_INTEGER result;
+  QueryPerformanceCounter(&result);
+  return result.QuadPart;
+}
+
+float ElapsedTime(Time from, Time to)
+{
+  static LARGE_INTEGER freq;
+  return (float)(to - from) / (float)fixed_frequency.QuadPart;
 }
 
 HWND InitializeWindow(const HINSTANCE& h_inst)
@@ -64,7 +107,8 @@ LRESULT CALLBACK MainWindowCallback(HWND hwnd, UINT u_msg, WPARAM w_param, LPARA
 {
   switch (u_msg)
   {
-  case WM_SIZE:
+  case WM_EXITSIZEMOVE:
+    frame.done = false;
     GetClientRect(hwnd, &winAPI.screen_client);
     GetWindowRect(hwnd, &winAPI.screen_window);
     UpdateClientRect(hwnd);
@@ -89,8 +133,8 @@ LRESULT CALLBACK MainWindowCallback(HWND hwnd, UINT u_msg, WPARAM w_param, LPARA
   case WM_CLOSE:
   case WM_DESTROY:
     winAPI.quit = true;
-    ReleaseDC(hwnd, winAPI.hdc);
     DeleteObject(winAPI.hbm);
+    ReleaseDC(hwnd, winAPI.hdc);
     break;
 
   case WM_PAINT:
@@ -131,6 +175,7 @@ void Render(const HWND& hwnd)
   HDC temp_hdc;
 
   temp_hdc = BeginPaint(hwnd, &paint_struct);
+
   if (!winAPI.hbm)
   {
     winAPI.hdc = CreateCompatibleDC(temp_hdc);
@@ -139,9 +184,13 @@ void Render(const HWND& hwnd)
   
     BITMAP bmp;
     GetObject(winAPI.hbm, sizeof(BITMAP), &bmp);
-    bmp.bmBitsPixel = 8;
     ReallocateFrame(bmp.bmWidth, bmp.bmHeight, bmp.bmWidthBytes);
     ClearFrame(0);
+  }
+  else if (frame.done)
+  {
+    EndPaint(hwnd, &paint_struct);
+    return;
   }
 
   RenderFrame();
@@ -188,18 +237,35 @@ void DeallocateFrame()
 void ClearFrame(unsigned char clear_value)
 {
   for (int i = 0; i < frame.width * frame.height; ++i)
-    frame.pixel_buffer[i] = {0};
+    frame.pixel_buffer[i] = { clear_value, clear_value, clear_value, clear_value };
+}
+
+Vec3 get_color(const Ray& r)
+{
+  Vec3 unit_dir = r.direction.normalized();
+  float t = .5f * (unit_dir.y + 1.0f);
+  return (1.0f - t) * Vec3(1.0f) + t * Vec3(.5f, .7f, 1.0f);
 }
 
 void RenderFrame()
 {
-  for (int i = 0; i < frame.height; ++i)
-  {
-    for (int j = 0; j < frame.width; ++j)
+  Vec3 bottom_left(-2.0f, -1.0f, -1.0f);
+  Vec3 horizontal(4.0f, 0.0f, 0.0f);
+  Vec3 vertical(0.0f, 2.0f, 0.0f);
+  Vec3 origin(0.0f, 0.0f, 0.0f);
+  
+  for (int h = 0; h < frame.height; ++h)
+    for (int w = 0; w < frame.width; ++w)
     {
-      frame.pixel_buffer[i * frame.width + j].r = 255;
-      frame.pixel_buffer[i * frame.width + j].g = 255;
-      frame.pixel_buffer[i * frame.width + j].b = 0;
+      float u = w / float(frame.width);
+      float v = (frame.height - h) / float(frame.height);
+      Ray r(origin, bottom_left + u * horizontal + v * vertical);
+      Vec3 pixel_color = get_color(r);
+  
+      frame.pixel_buffer[h * frame.width + w].r = int(255.99 * pixel_color.r);
+      frame.pixel_buffer[h * frame.width + w].g = int(255.99 * pixel_color.g);
+      frame.pixel_buffer[h * frame.width + w].b = int(255.99 * pixel_color.b);
     }
-  }
+  
+  frame.done = true;
 }

@@ -34,9 +34,10 @@ union Pixel
 
 extern struct Frame
 {
-  //unsigned char* pixel_buffer = NULL;
   Pixel* pixel_buffer = NULL;
   int width = 0;
   int height = 0;
   int stride = 0;
+
+  bool done = false;
 } frame;
