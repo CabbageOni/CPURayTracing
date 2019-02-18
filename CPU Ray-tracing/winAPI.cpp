@@ -2,7 +2,7 @@
 
 #include "winAPI.h"
 
-static HWND InitializeWindow(WNDCLASS& wnd_class, const HINSTANCE& h_inst);
+static HWND InitializeWindow(const HINSTANCE& h_inst);
 static LRESULT CALLBACK MainWindowCallback(HWND hwnd, UINT u_msg, WPARAM w_param, LPARAM l_param);
 static void UpdateClientRect(const HWND& hwnd);
 static void Render(const HWND& hwnd);
@@ -15,8 +15,7 @@ struct Frame frame;
 
 int CALLBACK WinMain(HINSTANCE h_instance, HINSTANCE, LPSTR, int)
 {
-  WNDCLASS window_class = {};
-  winAPI.window_handle = InitializeWindow(window_class, h_instance);
+  winAPI.window_handle = InitializeWindow(h_instance);
   winAPI.instance_handle = h_instance;
   if (!winAPI.window_handle) return 0;
 
@@ -34,24 +33,28 @@ int CALLBACK WinMain(HINSTANCE h_instance, HINSTANCE, LPSTR, int)
   return 0;
 }
 
-HWND InitializeWindow(WNDCLASS& wnd_class, const HINSTANCE& h_inst)
+HWND InitializeWindow(const HINSTANCE& h_inst)
 {
-  wnd_class.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
-  wnd_class.lpfnWndProc = MainWindowCallback;
-  wnd_class.hInstance = h_inst;
-  wnd_class.hCursor = LoadCursor(NULL, IDC_ARROW);
-  wnd_class.hbrBackground = (HBRUSH)(GetStockObject(GRAY_BRUSH));
-  wnd_class.lpszClassName = "Framework for CPU Ray-Tracing";
+  WNDCLASSEX window_class_ex = {};
+  window_class_ex.cbSize = sizeof(WNDCLASSEX);
+  window_class_ex.style = CS_HREDRAW | CS_VREDRAW;
+  window_class_ex.lpfnWndProc = MainWindowCallback;
+  window_class_ex.cbClsExtra = 0;
+  window_class_ex.cbWndExtra = 0;
+  window_class_ex.hInstance = h_inst;
+  window_class_ex.hCursor = LoadCursor(NULL, IDC_ARROW);
+  window_class_ex.hbrBackground = (HBRUSH)(GetStockObject(GRAY_BRUSH));
+  window_class_ex.lpszClassName = "Framework for CPU Ray-Tracing";
 
-  if (RegisterClass(&wnd_class))
+  if (RegisterClassEx(&window_class_ex))
     return CreateWindowEx(0,
-      wnd_class.lpszClassName,
+      window_class_ex.lpszClassName,
       "CPU Ray-Tracing",
       WS_OVERLAPPEDWINDOW | WS_VISIBLE,
       CW_USEDEFAULT, CW_USEDEFAULT,
       winAPI.initial_width,
       winAPI.initial_height,
-      0, 0, wnd_class.hInstance, 0);
+      0, 0, window_class_ex.hInstance, 0);
 
   return nullptr;
 }
@@ -135,6 +138,7 @@ void Render(const HWND& hwnd)
   
     BITMAP bmp;
     GetObject(winAPI.hbm, sizeof(BITMAP), &bmp);
+    bmp.bmBitsPixel = 8;
     ReallocateFrame(bmp.bmWidth, bmp.bmHeight, bmp.bmWidthBytes);
     ClearFrame(0);
   }
@@ -178,7 +182,7 @@ void Render(const HWND& hwnd)
   //SetTextColor(temp_hdc, RGB(255, 0, 0));
   //DrawText(temp_hdc, "진짜 그지같은 WinAPI 뒤져라", -1, &rect, DT_SINGLELINE | DT_CENTER);
 
-  auto ret = SetBitmapBits(winAPI.hbm, frame.stride * frame.height, frame.pixel_buffer);
+  SetBitmapBits(winAPI.hbm, frame.stride * frame.height, frame.pixel_buffer);
   BitBlt(temp_hdc, 0, 0, frame.width, frame.height, winAPI.hdc, 0, 0, SRCCOPY);
   EndPaint(hwnd, &paint_struct);
 }
