@@ -2,7 +2,7 @@
 
 #include <Windows.h>
 
-struct WinAPI
+extern struct WinAPI
 {
   HWND window_handle;
   HINSTANCE instance_handle;
@@ -15,6 +15,15 @@ struct WinAPI
   RECT screen_client;
   RECT screen_window;
 
-  HDC m_hdc;
-  HGLRC m_hglrc;
+  HDC hdc;
+  HBITMAP hbm;
+  HGLRC hglrc;
 } winAPI;
+
+extern struct Frame
+{
+  unsigned char* pixel_buffer = NULL;
+  int width = 0;
+  int height = 0;
+  int stride = 0;
+} frame;
