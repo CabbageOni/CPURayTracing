@@ -9,6 +9,7 @@ static void Render(const HWND& hwnd);
 static void ReallocateFrame(int new_width, int new_height, int new_stride);
 static void DeallocateFrame();
 static void ClearFrame(unsigned char clear_value);
+static void RenderFrame();
 
 struct WinAPI winAPI;
 struct Frame frame;
@@ -130,10 +131,10 @@ void Render(const HWND& hwnd)
   HDC temp_hdc;
 
   temp_hdc = BeginPaint(hwnd, &paint_struct);
-  if (!winAPI.hdc)
+  if (!winAPI.hbm)
   {
     winAPI.hdc = CreateCompatibleDC(temp_hdc);
-    winAPI.hbm = CreateCompatibleBitmap(winAPI.hdc, winAPI.width, winAPI.height);
+    winAPI.hbm = CreateCompatibleBitmap(temp_hdc, winAPI.width, winAPI.height);
     SelectObject(winAPI.hdc, winAPI.hbm);
   
     BITMAP bmp;
@@ -143,44 +144,21 @@ void Render(const HWND& hwnd)
     ClearFrame(0);
   }
 
-  // RENDER START
-  const int PIXEL_WIDTH = 4;
-  const int INDEX_BLUE = 0;
-  const int INDEX_GREEN = 1;
-  const int INDEX_RED = 2;
-  const int INDEX_ALPHA = 3;
-  
-  for (int i = 0; i < frame.height - 1; ++i)
-  {
-    for (int j = 0; j < frame.stride - 1; j += PIXEL_WIDTH)
-    {
-      frame.pixel_buffer[i * frame.stride + j + INDEX_RED] = 255;
-      frame.pixel_buffer[i * frame.stride + j + INDEX_GREEN] = 0;
-      frame.pixel_buffer[i * frame.stride + j + INDEX_BLUE] = 255;
-    }
-  }
-  // RENDER END
+  RenderFrame();
 
-  //BITMAPINFO info;
-  //info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-  //info.bmiHeader.biWidth = frame.width;
-  //info.bmiHeader.biHeight = frame.height;
-  //info.bmiHeader.biPlanes = 1;
-  //info.bmiHeader.biBitCount = 8;
-  //info.bmiHeader.biCompression = BI_RGB;
-  //info.bmiHeader.biSizeImage = 0;
-  //info.bmiHeader.biXPelsPerMeter = 0;
-  //info.bmiColors[0].rgbReserved = 0;
-  //info.bmiColors[0].rgbRed = 1;
-  //info.bmiColors[0].rgbGreen = 1;
-  //info.bmiColors[0].rgbBlue = 1;
-  
-  //SetDIBits(temp_hdc, winAPI.hbm, 0, frame.height, frame.pixel_buffer, &info, DIB_RGB_COLORS);
+  /*
+  // disclaimer: tried to update SetBitmapBits into SetDIBits, but failed.
 
-  //RECT rect;
-  //GetClientRect(hwnd, &rect);
-  //SetTextColor(temp_hdc, RGB(255, 0, 0));
-  //DrawText(temp_hdc, "진짜 그지같은 WinAPI 뒤져라", -1, &rect, DT_SINGLELINE | DT_CENTER);
+  BITMAPINFO info;
+  info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+  info.bmiHeader.biWidth = frame.width;
+  info.bmiHeader.biHeight = frame.height;
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 8;
+  info.bmiHeader.biCompression = BI_RGB;
+  
+  SetDIBits(temp_hdc, winAPI.hbm, 0, frame.stride, frame.pixel_buffer, &info, DIB_RGB_COLORS);
+  */
 
   SetBitmapBits(winAPI.hbm, frame.stride * frame.height, frame.pixel_buffer);
   BitBlt(temp_hdc, 0, 0, frame.width, frame.height, winAPI.hdc, 0, 0, SRCCOPY);
@@ -189,9 +167,12 @@ void Render(const HWND& hwnd)
 
 void ReallocateFrame(int new_width, int new_height, int new_stride)
 {
+  if (new_width < 2 || new_height < 2)
+    return;
+
   delete[] frame.pixel_buffer;
 
-  frame.pixel_buffer = new unsigned char[new_height * new_stride];
+  frame.pixel_buffer = new Pixel[new_height * new_stride / 4];
 
   frame.width = new_width;
   frame.height = new_height;
@@ -206,6 +187,19 @@ void DeallocateFrame()
 
 void ClearFrame(unsigned char clear_value)
 {
-  for (int i = 0; i < frame.stride * frame.height; ++i)
-    frame.pixel_buffer[i] = clear_value;
+  for (int i = 0; i < frame.width * frame.height; ++i)
+    frame.pixel_buffer[i] = {0};
+}
+
+void RenderFrame()
+{
+  for (int i = 0; i < frame.height; ++i)
+  {
+    for (int j = 0; j < frame.width; ++j)
+    {
+      frame.pixel_buffer[i * frame.width + j].r = 255;
+      frame.pixel_buffer[i * frame.width + j].g = 255;
+      frame.pixel_buffer[i * frame.width + j].b = 0;
+    }
+  }
 }

@@ -20,9 +20,22 @@ extern struct WinAPI
   HGLRC hglrc;
 } winAPI;
 
+union Pixel
+{
+  unsigned char data[4];
+  struct
+  {
+    unsigned char b;
+    unsigned char g;
+    unsigned char r;
+    unsigned char a;
+  };
+};
+
 extern struct Frame
 {
-  unsigned char* pixel_buffer = NULL;
+  //unsigned char* pixel_buffer = NULL;
+  Pixel* pixel_buffer = NULL;
   int width = 0;
   int height = 0;
   int stride = 0;
