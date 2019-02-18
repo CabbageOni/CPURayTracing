@@ -20,7 +20,10 @@ union Vec3
 
   Vec3 operator*(float rhs) const;
   Vec3 operator+(const Vec3& rhs) const;
+  Vec3 operator-(const Vec3& rhs) const;
   Vec3 operator/(float rhs) const;
+  
+  static float dot(const Vec3& lhs, const Vec3& rhs);
 };
 
 Vec3 operator*(float lhs, const Vec3& rhs);

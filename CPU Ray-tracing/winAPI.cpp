@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include <math.h>
 
 #include "winAPI.h"
 #include "vector.h"
@@ -240,11 +241,28 @@ void ClearFrame(unsigned char clear_value)
     frame.pixel_buffer[i] = { clear_value, clear_value, clear_value, clear_value };
 }
 
+float hit_sphere(const Vec3& center, float radius, const Ray& r)
+{
+  Vec3 diff = r.origin - center;
+  float a = Vec3::dot(r.direction, r.direction);
+  float b = 2.0f * Vec3::dot(diff, r.direction);
+  float c = Vec3::dot(diff, diff) - radius * radius;
+  float discriminant = b * b - 4 * a * c;
+
+  return discriminant >= 0 ? (-b - sqrtf(discriminant)) / (2.0f * a) : -1.0f;
+}
+
 Vec3 get_color(const Ray& r)
 {
+  float t = hit_sphere(Vec3(0, 0, -1), 0.5f, r);
+  if (t > 0)
+  {
+    Vec3 N = (r.at(t) - Vec3(0, 0, -1)).normalized();
+    return .5f * (N + Vec3(1));
+  }
   Vec3 unit_dir = r.direction.normalized();
-  float t = .5f * (unit_dir.y + 1.0f);
-  return (1.0f - t) * Vec3(1.0f) + t * Vec3(.5f, .7f, 1.0f);
+  t = .5f * (unit_dir.y + 1.0f);
+  return (1.0f - t) * Vec3(1) + t * Vec3(.5f, .7f, 1.0f);
 }
 
 void RenderFrame()
