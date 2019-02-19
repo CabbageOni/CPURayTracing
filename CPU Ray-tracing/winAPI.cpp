@@ -9,6 +9,7 @@
 #include "vector.h"
 #include "ray.h"
 #include "objects.h"
+#include "randoms.h"
 
 #if defined(DEBUG) | defined(_DEBUG)
 #define CRTDBG_MAP_ALLOC
@@ -247,22 +248,7 @@ void RequestThreadRendering(HDC& temp_hdc, unsigned char clear_value)
   shared_thread_data.thread_renderer = std::thread(thread_renderer);
 }
 
-float uniform_rand()
-{
-  return float(rand() % RAND_MAX) / RAND_MAX;
-}
-
-Vec3 random_in_unit_sphere()
-{
-  Vec3 position;
-  do
-  {
-    position = 2.0f * Vec3(uniform_rand(), uniform_rand(), uniform_rand()) - Vec3(1);
-  } while (position.lengthSqr() >= 1.0f);
-  return position;
-}
-
-Color compute_raycast(const std::vector<Object*>& objects, const Ray& r)
+Color compute_raycast(const std::vector<Object*>& objects, const Ray& r, int depth)
 {
   const float t_min = 0.001f;
   const float t_max = 1000;
@@ -279,8 +265,11 @@ Color compute_raycast(const std::vector<Object*>& objects, const Ray& r)
 
   if (is_hit)
   {
-    Vec3 target = record.position + record.normal + random_in_unit_sphere();
-    return .5f * compute_raycast(objects, Ray(record.position, target - record.position));
+    Ray scattered;
+    Color attenuation;
+    if (depth < 50 && record.material_ptr->scatter(r, record, attenuation, scattered))
+      return attenuation * compute_raycast(objects, scattered, depth + 1);
+    return Vec3(0);
   }
 
   Vec3 unit_dir = r.direction.normalized();
@@ -308,13 +297,18 @@ void thread_renderer()
     vertical = { 0, resolution_ratio * 2, 0 };
   }
 
-  Sphere sphere(Vec3(0, 0, 1), .5f);
-  Sphere sphere2(Vec3(0, -100.5f, 1), 100);
+  // objects
+  Sphere sphere(Vec3(0, 0, 1), .5f, new Lambertian(Vec3(.8f, .3f, .3f)));
+  Sphere left_sphere(Vec3(-1, 0, 1), .5f, new Metal(Vec3(.8f, .8f, 0.8f), .7f));
+  Sphere right_sphere(Vec3(1, 0, 1), .5f, new Metal(Vec3(.8f, .6f, 0.2f), 0));
+  Sphere ground(Vec3(0, -100.5f, 1), 100, new Lambertian(Vec3(.8f, .8f, 0)));
   std::vector<Object*> objects;
-  objects.reserve(2);
+  objects.reserve(4);
   objects.push_back(&sphere);
-  objects.push_back(&sphere2);
-
+  objects.push_back(&left_sphere);
+  objects.push_back(&right_sphere);
+  objects.push_back(&ground);
+   
   shared_thread_data.data_security.lock();
   for (int h = 0; h < shared_frame.height; ++h)
   {
@@ -328,16 +322,16 @@ void thread_renderer()
     {
       Color pixel_color(0);
 
-      const int sample_count = 50;
-      for (int sample_iter = 0; sample_iter < sample_count; ++sample_iter)
+      const int AA_sample_count = 50;
+      for (int AA_sample_iter = 0; AA_sample_iter < AA_sample_count; ++AA_sample_iter)
       {
         float du = (w + uniform_rand()) / float(shared_frame.width);
         float dv = (shared_frame.height - h + uniform_rand()) / float(shared_frame.height);
         Ray r(camera_pos, bottom_left + du * horizontal + dv * vertical);
 
-        pixel_color += compute_raycast(objects, r);
+        pixel_color += compute_raycast(objects, r, 0);
       }
-      pixel_color /= float(sample_count);
+      pixel_color /= float(AA_sample_count);
       pixel_color = Vec3(sqrtf(pixel_color.x), sqrtf(pixel_color.y), sqrtf(pixel_color.z));
 
       shared_frame.pixel_buffer[h * shared_frame.width + w].r = int(255.99 * pixel_color.r);

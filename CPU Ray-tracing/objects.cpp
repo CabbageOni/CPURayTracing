@@ -1,6 +1,13 @@
 #include <math.h>
 
 #include "objects.h"
+#include "randoms.h"
+
+Sphere::~Sphere()
+{
+  if (material_ptr)
+    delete material_ptr;
+}
 
 bool Sphere::hit(const Ray& r, float t_min, float t_max, HitRecord& record) const
 {
@@ -18,6 +25,7 @@ bool Sphere::hit(const Ray& r, float t_min, float t_max, HitRecord& record) cons
       record.t = t;
       record.position = r.at(t);
       record.normal = (record.position - center) / radius;
+      record.material_ptr = material_ptr;
       Vec3 test = record.normal.normalized();
       return true;
     }
@@ -27,8 +35,25 @@ bool Sphere::hit(const Ray& r, float t_min, float t_max, HitRecord& record) cons
       record.t = t;
       record.position = r.at(t);
       record.normal = (record.position - center) / radius;
+      record.material_ptr = material_ptr;
       return true;
     }
   }
   return false;
+}
+
+bool Lambertian::scatter(const Ray& ray_in, const HitRecord& record, Vec3& attenuation, Ray& scattered) const
+{
+  Vec3 target = record.position + record.normal + random_in_unit_sphere();
+  scattered = Ray(record.position, target - record.position);
+  attenuation = albedo;
+  return true;
+}
+
+bool Metal::scatter(const Ray& ray_in, const HitRecord& record, Vec3& attenuation, Ray& scattered) const
+{
+  Vec3 reflected = Vec3::reflect(ray_in.direction.normalized(), record.normal);
+  scattered = Ray(record.position, reflected + (1 - metallic) * random_in_unit_sphere());
+  attenuation = albedo;
+  return Vec3::dot(scattered.direction, record.normal) > 0;
 }

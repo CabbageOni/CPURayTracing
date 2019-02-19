@@ -126,6 +126,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="objects.h" />
+    <ClInclude Include="randoms.h" />
     <ClInclude Include="ray.h" />
     <ClInclude Include="vector.h" />
     <ClInclude Include="winAPI.h" />
