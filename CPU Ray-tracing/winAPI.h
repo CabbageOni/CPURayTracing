@@ -59,13 +59,10 @@ extern struct ThreadData
   // shared
   bool terminate_requested = false;
   std::mutex data_security;
-  std::mutex terminate_request_security;
 
   inline ~ThreadData()
   {
-    terminate_request_security.lock();
     terminate_requested = true;
-    terminate_request_security.unlock();
 
     // if rendering, request termination
     if (thread_renderer.joinable())

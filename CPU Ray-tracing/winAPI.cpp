@@ -218,9 +218,7 @@ void RequestThreadRendering(HDC& temp_hdc, unsigned char clear_value)
     return;
 
   // requests current rendering termination
-  shared_thread_data.terminate_request_security.lock();
   shared_thread_data.terminate_requested = true;
-  shared_thread_data.terminate_request_security.unlock();
 
   // wait until rendering is terminated
   if (shared_thread_data.thread_renderer.joinable())
@@ -243,17 +241,30 @@ void RequestThreadRendering(HDC& temp_hdc, unsigned char clear_value)
 
   shared_thread_data.data_security.unlock();
 
-  shared_thread_data.terminate_request_security.lock();
   shared_thread_data.terminate_requested = false;
-  shared_thread_data.terminate_request_security.unlock();
 
   // run rendering
   shared_thread_data.thread_renderer = std::thread(thread_renderer);
 }
 
+float uniform_rand()
+{
+  return float(rand() % RAND_MAX) / RAND_MAX;
+}
+
+Vec3 random_in_unit_sphere()
+{
+  Vec3 position;
+  do
+  {
+    position = 2.0f * Vec3(uniform_rand(), uniform_rand(), uniform_rand()) - Vec3(1);
+  } while (position.lengthSqr() >= 1.0f);
+  return position;
+}
+
 Color compute_raycast(const std::vector<Object*>& objects, const Ray& r)
 {
-  const float t_min = 0;
+  const float t_min = 0.001f;
   const float t_max = 1000;
 
   HitRecord record;
@@ -267,16 +278,14 @@ Color compute_raycast(const std::vector<Object*>& objects, const Ray& r)
     }
 
   if (is_hit)
-    return .5f * (record.normal + Vec3(1));
+  {
+    Vec3 target = record.position + record.normal + random_in_unit_sphere();
+    return .5f * compute_raycast(objects, Ray(record.position, target - record.position));
+  }
 
   Vec3 unit_dir = r.direction.normalized();
   float t = .5f * (unit_dir.y + 1.0f);
   return (1.0f - t) * Vec3(1) + t * Vec3(.5f, .7f, 1.0f);
-}
-
-float uniform_rand()
-{
-  return rand() % 10000 / 10000.f;
 }
 
 void thread_renderer()
@@ -306,17 +315,15 @@ void thread_renderer()
   objects.push_back(&sphere);
   objects.push_back(&sphere2);
 
+  shared_thread_data.data_security.lock();
   for (int h = 0; h < shared_frame.height; ++h)
   {
-    shared_thread_data.terminate_request_security.lock();
     if (shared_thread_data.terminate_requested)
     {
-      shared_thread_data.terminate_request_security.unlock();
+      shared_thread_data.data_security.unlock();
       return;
     }
-    shared_thread_data.terminate_request_security.unlock();
 
-    shared_thread_data.data_security.lock();
     for (int w = 0; w < shared_frame.width; ++w)
     {
       Color pixel_color(0);
@@ -331,11 +338,12 @@ void thread_renderer()
         pixel_color += compute_raycast(objects, r);
       }
       pixel_color /= float(sample_count);
+      pixel_color = Vec3(sqrtf(pixel_color.x), sqrtf(pixel_color.y), sqrtf(pixel_color.z));
 
       shared_frame.pixel_buffer[h * shared_frame.width + w].r = int(255.99 * pixel_color.r);
       shared_frame.pixel_buffer[h * shared_frame.width + w].g = int(255.99 * pixel_color.g);
       shared_frame.pixel_buffer[h * shared_frame.width + w].b = int(255.99 * pixel_color.b);
     }
-    shared_thread_data.data_security.unlock();
   }
+  shared_thread_data.data_security.unlock();
 }

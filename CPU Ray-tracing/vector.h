@@ -17,6 +17,7 @@ union Vec3
   Vec3(float x, float y, float z);
 
   float length() const;
+  float lengthSqr() const;
   Vec3 normalized() const;
 
   Vec3 operator*(float rhs) const;
