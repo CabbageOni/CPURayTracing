@@ -1,6 +1,7 @@
 #include <Windows.h>
 #include <math.h>
 #include <vector>
+#include <stdlib.h>
 
 #include "winAPI.h"
 #include "vector.h"
@@ -18,6 +19,7 @@ static void Render(const HWND& hwnd);
 static void ReallocateFrame(int new_width, int new_height, int new_stride);
 static void DeallocateFrame();
 static void ClearFrame(unsigned char clear_value);
+static void ResetRenderProgress();
 static void RenderFrame();
 
 struct WinAPI winAPI;
@@ -111,7 +113,7 @@ LRESULT CALLBACK MainWindowCallback(HWND hwnd, UINT u_msg, WPARAM w_param, LPARA
   switch (u_msg)
   {
   case WM_EXITSIZEMOVE:
-    frame.done = false;
+    ResetRenderProgress();
     GetClientRect(hwnd, &winAPI.screen_client);
     GetWindowRect(hwnd, &winAPI.screen_window);
     UpdateClientRect(hwnd);
@@ -188,7 +190,7 @@ void Render(const HWND& hwnd)
     BITMAP bmp;
     GetObject(winAPI.hbm, sizeof(BITMAP), &bmp);
     ReallocateFrame(bmp.bmWidth, bmp.bmHeight, bmp.bmWidthBytes);
-    ClearFrame(0);
+    ClearFrame(150);
   }
   else if (frame.done)
   {
@@ -243,6 +245,14 @@ void ClearFrame(unsigned char clear_value)
     frame.pixel_buffer[i] = { clear_value, clear_value, clear_value, clear_value };
 }
 
+static int h = 0;
+
+void ResetRenderProgress()
+{
+  frame.done = false;
+  h = 0;
+}
+
 float hit_sphere(const Vec3& center, float radius, const Ray& r)
 {
   Vec3 diff = r.origin - center;
@@ -277,8 +287,16 @@ Color compute_raycast(const std::vector<Object*>& objects, const Ray& r)
   return (1.0f - t) * Vec3(1) + t * Vec3(.5f, .7f, 1.0f);
 }
 
+float uniform_rand()
+{
+  return rand() % 10000 / 10000.f;
+}
+
 void RenderFrame()
 {
+  const int iter_per_frame_count = 10;
+  int iter_count = 0;
+
   Vec3 camera_pos(0.0f);
 
   Vec3 bottom_left, horizontal, vertical;
@@ -298,24 +316,38 @@ void RenderFrame()
   }
   
   Sphere sphere(Vec3(0, 0, 1), .5f);
-  Sphere sphere2(Vec3(.5f, 0, 1), .5f);
+  Sphere sphere2(Vec3(0, -100.5f, 1), 100);
   std::vector<Object*> objects;
   objects.reserve(2);
   objects.push_back(&sphere);
   objects.push_back(&sphere2);
 
-  for (int h = 0; h < frame.height; ++h)
+  for (; h < frame.height; ++h)
+  {
     for (int w = 0; w < frame.width; ++w)
     {
-      float du = w / float(frame.width);
-      float dv = (frame.height - h) / float(frame.height);
-      Ray r(camera_pos, bottom_left + du * horizontal + dv * vertical);
-      Color pixel_color = compute_raycast(objects, r);
+      Color pixel_color(0);
+
+      const int sample_count = 50;
+      for (int sample_iter = 0; sample_iter < sample_count; ++sample_iter)
+      {
+        float du = (w + uniform_rand()) / float(frame.width);
+        float dv = (frame.height - h + uniform_rand()) / float(frame.height);
+        Ray r(camera_pos, bottom_left + du * horizontal + dv * vertical);
+
+        pixel_color += compute_raycast(objects, r);
+      }
+      pixel_color /= float(sample_count);
   
       frame.pixel_buffer[h * frame.width + w].r = int(255.99 * pixel_color.r);
       frame.pixel_buffer[h * frame.width + w].g = int(255.99 * pixel_color.g);
       frame.pixel_buffer[h * frame.width + w].b = int(255.99 * pixel_color.b);
     }
-  
-  frame.done = true;
+    if (++iter_count > iter_per_frame_count)
+      goto halted;
+  }
+
+  halted:
+  if (h == frame.height)
+    frame.done = true;
 }
