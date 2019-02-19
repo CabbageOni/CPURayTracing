@@ -119,11 +119,13 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="objects.cpp" />
     <ClCompile Include="ray.cpp" />
     <ClCompile Include="vector.cpp" />
     <ClCompile Include="winAPI.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="objects.h" />
     <ClInclude Include="ray.h" />
     <ClInclude Include="vector.h" />
     <ClInclude Include="winAPI.h" />

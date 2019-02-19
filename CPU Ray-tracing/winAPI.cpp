@@ -1,9 +1,11 @@
 #include <Windows.h>
 #include <math.h>
+#include <vector>
 
 #include "winAPI.h"
 #include "vector.h"
 #include "ray.h"
+#include "objects.h"
 
 using Time = LONGLONG;
 
@@ -252,33 +254,63 @@ float hit_sphere(const Vec3& center, float radius, const Ray& r)
   return discriminant >= 0 ? (-b - sqrtf(discriminant)) / (2.0f * a) : -1.0f;
 }
 
-Vec3 get_color(const Ray& r)
+Color compute_raycast(const std::vector<Object*>& objects, const Ray& r)
 {
-  float t = hit_sphere(Vec3(0, 0, -1), 0.5f, r);
-  if (t > 0)
-  {
-    Vec3 N = (r.at(t) - Vec3(0, 0, -1)).normalized();
-    return .5f * (N + Vec3(1));
-  }
+  const float t_min = 0;
+  const float t_max = 1000;
+
+  HitRecord record;
+  bool is_hit = false;
+  float closest_t = t_max;
+  for (auto iter = objects.begin(); iter != objects.end(); ++iter)
+    if ((*iter)->hit(r, t_min, closest_t, record))
+    {
+      is_hit = true;
+      closest_t = record.t;
+    }
+
+  if (is_hit)
+    return .5f * (record.normal + Vec3(1));
+
   Vec3 unit_dir = r.direction.normalized();
-  t = .5f * (unit_dir.y + 1.0f);
+  float t = .5f * (unit_dir.y + 1.0f);
   return (1.0f - t) * Vec3(1) + t * Vec3(.5f, .7f, 1.0f);
 }
 
 void RenderFrame()
 {
-  Vec3 bottom_left(-2.0f, -1.0f, -1.0f);
-  Vec3 horizontal(4.0f, 0.0f, 0.0f);
-  Vec3 vertical(0.0f, 2.0f, 0.0f);
-  Vec3 origin(0.0f, 0.0f, 0.0f);
+  Vec3 camera_pos(0.0f);
+
+  Vec3 bottom_left, horizontal, vertical;
+  float resolution_ratio = frame.width / float(frame.height);
+  if (resolution_ratio > 1) // width is wider
+  {
+    bottom_left = { -resolution_ratio, -1, 1 };
+    horizontal = { resolution_ratio * 2, 0, 0 };
+    vertical = { 0, 2, 0 };
+  }
+  else // height is wider
+  {
+    resolution_ratio = frame.height / float(frame.width);
+    bottom_left = { -1, -resolution_ratio, 1 };
+    horizontal = { 2, 0, 0 };
+    vertical = { 0, resolution_ratio * 2, 0 };
+  }
   
+  Sphere sphere(Vec3(0, 0, 1), .5f);
+  Sphere sphere2(Vec3(.5f, 0, 1), .5f);
+  std::vector<Object*> objects;
+  objects.reserve(2);
+  objects.push_back(&sphere);
+  objects.push_back(&sphere2);
+
   for (int h = 0; h < frame.height; ++h)
     for (int w = 0; w < frame.width; ++w)
     {
-      float u = w / float(frame.width);
-      float v = (frame.height - h) / float(frame.height);
-      Ray r(origin, bottom_left + u * horizontal + v * vertical);
-      Vec3 pixel_color = get_color(r);
+      float du = w / float(frame.width);
+      float dv = (frame.height - h) / float(frame.height);
+      Ray r(camera_pos, bottom_left + du * horizontal + dv * vertical);
+      Color pixel_color = compute_raycast(objects, r);
   
       frame.pixel_buffer[h * frame.width + w].r = int(255.99 * pixel_color.r);
       frame.pixel_buffer[h * frame.width + w].g = int(255.99 * pixel_color.g);

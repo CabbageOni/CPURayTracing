@@ -12,6 +12,7 @@ union Vec3
     float r, g, b;
   };
 
+  inline Vec3() {}
   Vec3(float uniform);
   Vec3(float x, float y, float z);
 
@@ -27,3 +28,5 @@ union Vec3
 };
 
 Vec3 operator*(float lhs, const Vec3& rhs);
+
+using Color = Vec3;
