@@ -2,11 +2,26 @@
 #include <math.h>
 #include <vector>
 #include <stdlib.h>
+#include <thread>
+#include <mutex>
 
 #include "winAPI.h"
 #include "vector.h"
 #include "ray.h"
 #include "objects.h"
+
+#if defined(DEBUG) | defined(_DEBUG)
+#define CRTDBG_MAP_ALLOC
+#include <crtdbg.h>
+
+#define DEBUG_LEAK_CHECKS(x) \
+  _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);\
+  _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_DEBUG);\
+  _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG);\
+  _CrtSetBreakAlloc((x));
+#else
+#define DEBUG_LEAK_CHECKS(x)
+#endif
 
 using Time = LONGLONG;
 
@@ -16,26 +31,23 @@ static float ElapsedTime(Time from, Time to);
 static HWND InitializeWindow(const HINSTANCE& h_inst);
 static void UpdateClientRect(const HWND& hwnd);
 static void Render(const HWND& hwnd);
-static void ReallocateFrame(int new_width, int new_height, int new_stride);
-static void DeallocateFrame();
-static void ClearFrame(unsigned char clear_value);
-static void ResetRenderProgress();
-static void RenderFrame();
+static void RequestThreadRendering(HDC& temp_hdc, unsigned char clear_value);
+static void thread_renderer();
 
 struct WinAPI winAPI;
-struct Frame frame;
+struct Frame shared_frame;
+struct ThreadData shared_thread_data;
 
-static int draw_flag = 0;
 static LARGE_INTEGER fixed_frequency;
 const float framerate_target_dt = .016f;
 
 int CALLBACK WinMain(HINSTANCE h_instance, HINSTANCE, LPSTR, int)
 {
+  DEBUG_LEAK_CHECKS(-1);
+
   winAPI.window_handle = InitializeWindow(h_instance);
   winAPI.instance_handle = h_instance;
   if (!winAPI.window_handle) return 0;
-
-  UpdateWindow(winAPI.window_handle);
 
   Time last_frame_time = CurrentTime();
   QueryPerformanceFrequency(&fixed_frequency);
@@ -65,7 +77,6 @@ int CALLBACK WinMain(HINSTANCE h_instance, HINSTANCE, LPSTR, int)
     last_frame_time = current_time;
   }
 
-  DeallocateFrame();
   return 0;
 }
 
@@ -113,7 +124,6 @@ LRESULT CALLBACK MainWindowCallback(HWND hwnd, UINT u_msg, WPARAM w_param, LPARA
   switch (u_msg)
   {
   case WM_EXITSIZEMOVE:
-    ResetRenderProgress();
     GetClientRect(hwnd, &winAPI.screen_client);
     GetWindowRect(hwnd, &winAPI.screen_window);
     UpdateClientRect(hwnd);
@@ -182,86 +192,63 @@ void Render(const HWND& hwnd)
   temp_hdc = BeginPaint(hwnd, &paint_struct);
 
   if (!winAPI.hbm)
-  {
-    winAPI.hdc = CreateCompatibleDC(temp_hdc);
-    winAPI.hbm = CreateCompatibleBitmap(temp_hdc, winAPI.width, winAPI.height);
-    SelectObject(winAPI.hdc, winAPI.hbm);
-  
-    BITMAP bmp;
-    GetObject(winAPI.hbm, sizeof(BITMAP), &bmp);
-    ReallocateFrame(bmp.bmWidth, bmp.bmHeight, bmp.bmWidthBytes);
-    ClearFrame(150);
-  }
-  else if (frame.done)
-  {
-    EndPaint(hwnd, &paint_struct);
-    return;
-  }
+    RequestThreadRendering(temp_hdc, 150);
 
-  RenderFrame();
-
-  /*
-  // disclaimer: tried to update SetBitmapBits into SetDIBits, but failed.
-
-  BITMAPINFO info;
-  info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-  info.bmiHeader.biWidth = frame.width;
-  info.bmiHeader.biHeight = frame.height;
-  info.bmiHeader.biPlanes = 1;
-  info.bmiHeader.biBitCount = 8;
-  info.bmiHeader.biCompression = BI_RGB;
-  
-  SetDIBits(temp_hdc, winAPI.hbm, 0, frame.stride, frame.pixel_buffer, &info, DIB_RGB_COLORS);
-  */
-
-  SetBitmapBits(winAPI.hbm, frame.stride * frame.height, frame.pixel_buffer);
-  BitBlt(temp_hdc, 0, 0, frame.width, frame.height, winAPI.hdc, 0, 0, SRCCOPY);
+  SetBitmapBits(winAPI.hbm, shared_frame.stride * shared_frame.height, shared_frame.pixel_buffer);
+  BitBlt(temp_hdc, 0, 0, shared_frame.width, shared_frame.height, winAPI.hdc, 0, 0, SRCCOPY);
   EndPaint(hwnd, &paint_struct);
 }
 
-void ReallocateFrame(int new_width, int new_height, int new_stride)
+void RequestThreadRendering(HDC& temp_hdc, unsigned char clear_value)
 {
-  if (new_width < 2 || new_height < 2)
+  winAPI.hdc = CreateCompatibleDC(temp_hdc);
+  winAPI.hbm = CreateCompatibleBitmap(temp_hdc, winAPI.width, winAPI.height);
+  SelectObject(winAPI.hdc, winAPI.hbm);
+
+  BITMAP bmp;
+  GetObject(winAPI.hbm, sizeof(BITMAP), &bmp);
+
+  if (bmp.bmWidth < 2 || bmp.bmHeight < 2)
     return;
 
-  delete[] frame.pixel_buffer;
+  //check if window is only moved
+  if (shared_frame.width == bmp.bmWidth &&
+      shared_frame.height == bmp.bmHeight &&
+      shared_frame.stride == bmp.bmWidthBytes)
+    return;
 
-  frame.pixel_buffer = new Pixel[new_height * new_stride / 4];
+  // requests current rendering termination
+  shared_thread_data.terminate_request_security.lock();
+  shared_thread_data.terminate_requested = true;
+  shared_thread_data.terminate_request_security.unlock();
 
-  frame.width = new_width;
-  frame.height = new_height;
-  frame.stride = new_stride;
-}
+  // wait until rendering is terminated
+  if (shared_thread_data.thread_renderer.joinable())
+    shared_thread_data.thread_renderer.join();
 
-void DeallocateFrame()
-{
-  delete[] frame.pixel_buffer;
-  frame.pixel_buffer = NULL;
-}
+  // reallocate the frame buffer
+  shared_thread_data.data_security.lock();
 
-void ClearFrame(unsigned char clear_value)
-{
-  for (int i = 0; i < frame.width * frame.height; ++i)
-    frame.pixel_buffer[i] = { clear_value, clear_value, clear_value, clear_value };
-}
+  delete[] shared_frame.pixel_buffer;
 
-static int h = 0;
+  shared_frame.pixel_buffer = new Pixel[bmp.bmHeight * bmp.bmWidthBytes / 4];
 
-void ResetRenderProgress()
-{
-  frame.done = false;
-  h = 0;
-}
+  shared_frame.width = bmp.bmWidth;
+  shared_frame.height = bmp.bmHeight;
+  shared_frame.stride = bmp.bmWidthBytes;
 
-float hit_sphere(const Vec3& center, float radius, const Ray& r)
-{
-  Vec3 diff = r.origin - center;
-  float a = Vec3::dot(r.direction, r.direction);
-  float b = 2.0f * Vec3::dot(diff, r.direction);
-  float c = Vec3::dot(diff, diff) - radius * radius;
-  float discriminant = b * b - 4 * a * c;
+  // clear the frame
+  for (int i = 0; i < shared_frame.width * shared_frame.height; ++i)
+    shared_frame.pixel_buffer[i] = { clear_value, clear_value, clear_value, 255 };
 
-  return discriminant >= 0 ? (-b - sqrtf(discriminant)) / (2.0f * a) : -1.0f;
+  shared_thread_data.data_security.unlock();
+
+  shared_thread_data.terminate_request_security.lock();
+  shared_thread_data.terminate_requested = false;
+  shared_thread_data.terminate_request_security.unlock();
+
+  // run rendering
+  shared_thread_data.thread_renderer = std::thread(thread_renderer);
 }
 
 Color compute_raycast(const std::vector<Object*>& objects, const Ray& r)
@@ -292,15 +279,12 @@ float uniform_rand()
   return rand() % 10000 / 10000.f;
 }
 
-void RenderFrame()
+void thread_renderer()
 {
-  const int iter_per_frame_count = 10;
-  int iter_count = 0;
-
   Vec3 camera_pos(0.0f);
 
   Vec3 bottom_left, horizontal, vertical;
-  float resolution_ratio = frame.width / float(frame.height);
+  float resolution_ratio = shared_frame.width / float(shared_frame.height);
   if (resolution_ratio > 1) // width is wider
   {
     bottom_left = { -resolution_ratio, -1, 1 };
@@ -309,12 +293,12 @@ void RenderFrame()
   }
   else // height is wider
   {
-    resolution_ratio = frame.height / float(frame.width);
+    resolution_ratio = shared_frame.height / float(shared_frame.width);
     bottom_left = { -1, -resolution_ratio, 1 };
     horizontal = { 2, 0, 0 };
     vertical = { 0, resolution_ratio * 2, 0 };
   }
-  
+
   Sphere sphere(Vec3(0, 0, 1), .5f);
   Sphere sphere2(Vec3(0, -100.5f, 1), 100);
   std::vector<Object*> objects;
@@ -322,32 +306,36 @@ void RenderFrame()
   objects.push_back(&sphere);
   objects.push_back(&sphere2);
 
-  for (; h < frame.height; ++h)
+  for (int h = 0; h < shared_frame.height; ++h)
   {
-    for (int w = 0; w < frame.width; ++w)
+    shared_thread_data.terminate_request_security.lock();
+    if (shared_thread_data.terminate_requested)
+    {
+      shared_thread_data.terminate_request_security.unlock();
+      return;
+    }
+    shared_thread_data.terminate_request_security.unlock();
+
+    shared_thread_data.data_security.lock();
+    for (int w = 0; w < shared_frame.width; ++w)
     {
       Color pixel_color(0);
 
       const int sample_count = 50;
       for (int sample_iter = 0; sample_iter < sample_count; ++sample_iter)
       {
-        float du = (w + uniform_rand()) / float(frame.width);
-        float dv = (frame.height - h + uniform_rand()) / float(frame.height);
+        float du = (w + uniform_rand()) / float(shared_frame.width);
+        float dv = (shared_frame.height - h + uniform_rand()) / float(shared_frame.height);
         Ray r(camera_pos, bottom_left + du * horizontal + dv * vertical);
 
         pixel_color += compute_raycast(objects, r);
       }
       pixel_color /= float(sample_count);
-  
-      frame.pixel_buffer[h * frame.width + w].r = int(255.99 * pixel_color.r);
-      frame.pixel_buffer[h * frame.width + w].g = int(255.99 * pixel_color.g);
-      frame.pixel_buffer[h * frame.width + w].b = int(255.99 * pixel_color.b);
-    }
-    if (++iter_count > iter_per_frame_count)
-      goto halted;
-  }
 
-  halted:
-  if (h == frame.height)
-    frame.done = true;
+      shared_frame.pixel_buffer[h * shared_frame.width + w].r = int(255.99 * pixel_color.r);
+      shared_frame.pixel_buffer[h * shared_frame.width + w].g = int(255.99 * pixel_color.g);
+      shared_frame.pixel_buffer[h * shared_frame.width + w].b = int(255.99 * pixel_color.b);
+    }
+    shared_thread_data.data_security.unlock();
+  }
 }
