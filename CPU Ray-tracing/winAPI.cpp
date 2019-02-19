@@ -279,7 +279,7 @@ Color compute_raycast(const std::vector<Object*>& objects, const Ray& r, int dep
 
 void thread_renderer()
 {
-  Vec3 camera_pos(0.0f);
+  Vec3 camera_pos(0,0,-1);
 
   Vec3 bottom_left, horizontal, vertical;
   float resolution_ratio = shared_frame.width / float(shared_frame.height);
@@ -299,14 +299,20 @@ void thread_renderer()
 
   // objects
   Sphere sphere(Vec3(0, 0, 1), .5f, new Lambertian(Vec3(.8f, .3f, .3f)));
-  Sphere left_sphere(Vec3(-1, 0, 1), .5f, new Metal(Vec3(.8f, .8f, 0.8f), .7f));
-  Sphere right_sphere(Vec3(1, 0, 1), .5f, new Metal(Vec3(.8f, .6f, 0.2f), 0));
+  Sphere left_sphere(Vec3(-.9f, -.1f, .9f), .4f, new Metal(Vec3(.8f, .8f, 0.8f), .8f));
+  Sphere right_sphere(Vec3(1.2f, 0.1f, 1.1f), .6f, new Metal(Vec3(.8f, .6f, 0.2f), .2f));
+  Sphere glass_sphere(Vec3(-.4f, -.3f, .5f), .2f, new Dielectric(1.5f));
+  Sphere bubble_inner(Vec3(.3f, -.05f, -0.2f), -.1f, new Dielectric(1.8f));
+  Sphere bubble_outer(Vec3(.3f, -.05f, -0.2f), .101f, new Dielectric(1.8f));
   Sphere ground(Vec3(0, -100.5f, 1), 100, new Lambertian(Vec3(.8f, .8f, 0)));
   std::vector<Object*> objects;
-  objects.reserve(4);
+  objects.reserve(7);
   objects.push_back(&sphere);
   objects.push_back(&left_sphere);
   objects.push_back(&right_sphere);
+  objects.push_back(&glass_sphere);
+  objects.push_back(&bubble_inner);
+  objects.push_back(&bubble_outer);
   objects.push_back(&ground);
    
   shared_thread_data.data_security.lock();
@@ -322,7 +328,7 @@ void thread_renderer()
     {
       Color pixel_color(0);
 
-      const int AA_sample_count = 50;
+      const int AA_sample_count = 200;
       for (int AA_sample_iter = 0; AA_sample_iter < AA_sample_count; ++AA_sample_iter)
       {
         float du = (w + uniform_rand()) / float(shared_frame.width);

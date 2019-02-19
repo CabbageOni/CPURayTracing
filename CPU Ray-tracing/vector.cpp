@@ -21,6 +21,11 @@ Vec3 Vec3::normalized() const
   return *this / length();
 }
 
+Vec3 Vec3::operator-() const
+{
+  return *this * -1;
+}
+
 Vec3 Vec3::operator*(float rhs) const
 {
   return Vec3(x * rhs, y * rhs, z * rhs);
@@ -70,6 +75,19 @@ float Vec3::dot(const Vec3& lhs, const Vec3& rhs)
 Vec3 Vec3::reflect(const Vec3& in, const Vec3& axis)
 {
   return in - 2 * dot(in, axis) * axis;
+}
+
+bool Vec3::refract(const Vec3& in, const Vec3& axis, float steepness, Vec3& refracted)
+{
+  Vec3 uv = in.normalized();
+  float dt = dot(uv, axis);
+  float discriminant = 1.0f - steepness * steepness * (1 - dt * dt);
+  if (discriminant > 0)
+  {
+    refracted = steepness * (uv - axis * dt) - axis * sqrtf(discriminant);
+    return true;
+  }
+  return false;
 }
 
 Vec3 operator*(float lhs, const Vec3& rhs)

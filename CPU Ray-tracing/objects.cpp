@@ -57,3 +57,47 @@ bool Metal::scatter(const Ray& ray_in, const HitRecord& record, Vec3& attenuatio
   attenuation = albedo;
   return Vec3::dot(scattered.direction, record.normal) > 0;
 }
+
+static float schlick(float cos, float steepness)
+{
+  float r = (1 - steepness) / (1 + steepness);
+  r *= r;
+  return r + (1 - r) * powf(1 - cos, 5);
+}
+
+bool Dielectric::scatter(const Ray& ray_in, const HitRecord& record, Vec3& attenuation, Ray& scattered) const
+{
+  Vec3 outward_normal;
+  Vec3 reflected = Vec3::reflect(ray_in.direction, record.normal);
+  float correct_steepness;
+  attenuation = Vec3(1);
+  Vec3 refracted;
+  float reflect_prob;
+  float cos;
+  float dot_ray_normal = Vec3::dot(ray_in.direction, record.normal);
+
+  if (dot_ray_normal > 0)
+  {
+    outward_normal = -record.normal;
+    correct_steepness = steepness;
+    cos = steepness * dot_ray_normal / ray_in.direction.length();
+  }
+  else
+  {
+    outward_normal = record.normal;
+    correct_steepness = 1.0f / steepness;
+    cos = -dot_ray_normal / ray_in.direction.length();
+  }
+  if (Vec3::refract(ray_in.direction, outward_normal, correct_steepness, refracted))
+    reflect_prob = schlick(cos, steepness);
+  else
+  {
+    reflect_prob = 1;
+  }
+  if (uniform_rand() < reflect_prob)
+    scattered = Ray(record.position, reflected);
+  else
+    scattered = Ray(record.position, refracted);
+
+  return true;
+}

@@ -56,3 +56,13 @@ struct Metal : public Material
 
   virtual bool scatter(const Ray& ray_in, const HitRecord& record, Vec3& attenuation, Ray& scattered) const override;
 };
+
+struct Dielectric : public Material
+{
+  float steepness;
+
+  inline Dielectric() {}
+  inline Dielectric(float steepness) : steepness(steepness) {}
+
+  virtual bool scatter(const Ray& ray_in, const HitRecord& record, Vec3& attenuation, Ray& scattered) const override;
+};
