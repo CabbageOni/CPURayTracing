@@ -18,6 +18,7 @@ union Vec3
 
   float length() const;
   float lengthSqr() const;
+  void normalize();
   Vec3 normalized() const;
 
   Vec3 operator-() const;
@@ -32,6 +33,7 @@ union Vec3
   Vec3& operator/=(float rhs);
   
   static float dot(const Vec3& lhs, const Vec3& rhs);
+  static Vec3 cross(const Vec3& lhs, const Vec3& rhs);
   static Vec3 reflect(const Vec3& in, const Vec3& axis);
   static bool refract(const Vec3& in, const Vec3& axis, float steepness, Vec3& refracted);
 };

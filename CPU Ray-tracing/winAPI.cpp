@@ -248,6 +248,49 @@ void RequestThreadRendering(HDC& temp_hdc, unsigned char clear_value)
   shared_thread_data.thread_renderer = std::thread(thread_renderer);
 }
 
+Camera::Camera(const Vec3& position, float theta, float phi, float focus_dist) : position(position), focus_dist(focus_dist)
+{
+  look = { cosf(phi) * cosf(theta), tanf(phi), cosf(phi) * sinf(theta) };
+
+  float tan_half_fov = tanf(pi / 4) * focus_dist;
+  float resolution_ratio = shared_frame.height / float(shared_frame.width);
+
+  Vec3 quad_center = position + look * focus_dist;
+  Vec3 right_hand = Vec3(look.z, 0, -look.x);
+
+  right = Vec3::cross(Vec3(0,1,0), look);
+  up = Vec3::cross(look, right);
+
+  if (resolution_ratio < 1)
+  {
+    horizontal = Vec3::cross(Vec3(0, 1, 0), look) * tan_half_fov * 2 / resolution_ratio;
+    vertical = Vec3::cross(look, right_hand) * tan_half_fov * 2;
+  }
+  else
+  {
+    horizontal = Vec3::cross(Vec3(0, 1, 0), look) * tan_half_fov * 2;
+    vertical = Vec3::cross(look, right_hand) * tan_half_fov * 2 * resolution_ratio;
+  }
+  bottom_left = quad_center - horizontal * .5f - vertical * .5f;
+}
+
+Vec3 Camera::random_in_unit_disk()
+{
+  Vec3 p;
+  do
+  {
+    p = 2.0f * Vec3(uniform_rand(), uniform_rand(), 0) - Vec3(1, 0, 0);
+  } while (Vec3::dot(p, p) >= 1.0f);
+  return p;
+}
+
+Ray Camera::get_ray(float du, float dv)
+{
+  Vec3 rd = lens_radius * random_in_unit_disk();
+  Vec3 offset = right * rd.x + up * rd.y;
+  return Ray(position + offset, bottom_left + du * horizontal + dv * vertical - position - offset);
+}
+
 Color compute_raycast(const std::vector<Object*>& objects, const Ray& r, int depth)
 {
   const float t_min = 0.001f;
@@ -279,24 +322,6 @@ Color compute_raycast(const std::vector<Object*>& objects, const Ray& r, int dep
 
 void thread_renderer()
 {
-  Vec3 camera_pos(0,0,-1);
-
-  Vec3 bottom_left, horizontal, vertical;
-  float resolution_ratio = shared_frame.width / float(shared_frame.height);
-  if (resolution_ratio > 1) // width is wider
-  {
-    bottom_left = { -resolution_ratio, -1, 1 };
-    horizontal = { resolution_ratio * 2, 0, 0 };
-    vertical = { 0, 2, 0 };
-  }
-  else // height is wider
-  {
-    resolution_ratio = shared_frame.height / float(shared_frame.width);
-    bottom_left = { -1, -resolution_ratio, 1 };
-    horizontal = { 2, 0, 0 };
-    vertical = { 0, resolution_ratio * 2, 0 };
-  }
-
   // objects
   Sphere sphere(Vec3(0, 0, 1), .5f, new Lambertian(Vec3(.8f, .3f, .3f)));
   Sphere left_sphere(Vec3(-.9f, -.1f, .9f), .4f, new Metal(Vec3(.8f, .8f, 0.8f), .8f));
@@ -316,6 +341,10 @@ void thread_renderer()
   objects.push_back(&ground);
    
   shared_thread_data.data_security.lock();
+  Vec3 camera_pos(-1, 1, 0);
+  Camera camera(camera_pos, pi * .25f, pi * -.2f, (sphere.center - camera_pos).length() - .2f);
+  camera.lens_radius = 0.1f;
+
   for (int h = 0; h < shared_frame.height; ++h)
   {
     if (shared_thread_data.terminate_requested)
@@ -333,9 +362,8 @@ void thread_renderer()
       {
         float du = (w + uniform_rand()) / float(shared_frame.width);
         float dv = (shared_frame.height - h + uniform_rand()) / float(shared_frame.height);
-        Ray r(camera_pos, bottom_left + du * horizontal + dv * vertical);
 
-        pixel_color += compute_raycast(objects, r, 0);
+        pixel_color += compute_raycast(objects, camera.get_ray(du, dv), 0);
       }
       pixel_color /= float(AA_sample_count);
       pixel_color = Vec3(sqrtf(pixel_color.x), sqrtf(pixel_color.y), sqrtf(pixel_color.z));

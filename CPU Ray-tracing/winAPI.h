@@ -3,13 +3,17 @@
 #include <Windows.h>
 #include <thread>
 #include <mutex>
+#include <atomic>
+
+#include "vector.h"
+#include "ray.h"
 
 extern struct WinAPI
 {
   HWND window_handle;
   HINSTANCE instance_handle;
-  int initial_width = 1080;
-  int initial_height = 720;
+  int initial_width = 500;
+  int initial_height = 250;
   int width = initial_width;
   int height = initial_height;
   bool quit = false;
@@ -21,6 +25,8 @@ extern struct WinAPI
   HBITMAP hbm;
   HGLRC hglrc;
 } winAPI;
+
+const float pi = 3.141592f;
 
 union Pixel
 {
@@ -50,6 +56,23 @@ extern struct Frame
 
 } shared_frame;
 
+class Camera
+{
+private:
+  Vec3 bottom_left, horizontal, vertical;
+  Vec3 up, right, look;
+  Vec3 random_in_unit_disk();
+  float focus_dist;
+
+public:
+  Vec3 position;
+  float lens_radius = 0;
+
+  Camera(const Vec3& position, float theta, float phi, float focus_dist);
+
+  Ray get_ray(float du, float dv);
+};
+
 extern struct ThreadData
 {
   // non-shared
@@ -57,7 +80,7 @@ extern struct ThreadData
   HDC temp_hdc;
 
   // shared
-  bool terminate_requested = false;
+  std::atomic<bool> terminate_requested = false;
   std::mutex data_security;
 
   inline ~ThreadData()
