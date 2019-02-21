@@ -252,7 +252,7 @@ Camera::Camera(const Vec3& position, float theta, float phi, float focus_dist) :
 {
   look = { cosf(phi) * cosf(theta), tanf(phi), cosf(phi) * sinf(theta) };
 
-  float tan_half_fov = tanf(pi / 4) * focus_dist;
+  float tan_half_fov = tanf(pi / 12) * focus_dist;
   float resolution_ratio = shared_frame.height / float(shared_frame.width);
 
   Vec3 quad_center = position + look * focus_dist;
@@ -320,9 +320,9 @@ Color compute_raycast(const std::vector<Object*>& objects, const Ray& r, int dep
   return (1.0f - t) * Vec3(1) + t * Vec3(.5f, .7f, 1.0f);
 }
 
-void thread_renderer()
+void previous_scene_set_ups()
 {
-  // objects
+  /*
   Sphere sphere(Vec3(0, 0, 1), .5f, new Lambertian(Vec3(.8f, .3f, .3f)));
   Sphere left_sphere(Vec3(-.9f, -.1f, .9f), .4f, new Metal(Vec3(.8f, .8f, 0.8f), .8f));
   Sphere right_sphere(Vec3(1.2f, 0.1f, 1.1f), .6f, new Metal(Vec3(.8f, .6f, 0.2f), .2f));
@@ -339,16 +339,53 @@ void thread_renderer()
   objects.push_back(&bubble_inner);
   objects.push_back(&bubble_outer);
   objects.push_back(&ground);
-   
+
   shared_thread_data.data_security.lock();
   Vec3 camera_pos(-1, 1, 0);
   Camera camera(camera_pos, pi * .25f, pi * -.2f, (sphere.center - camera_pos).length() - .2f);
-  camera.lens_radius = 0.1f;
+  camera.lens_radius = 0.1f;*/
+}
+
+void thread_renderer()
+{
+  int n = 204;
+  std::vector<Object*> objects;
+  objects.reserve(n);
+  objects.push_back(new Sphere(Vec3(0,-1000,0), 1000, new Lambertian(Vec3(0.5f))));
+  for(int i = 0; i < 200; ++i)
+  {
+    float choose_mat = uniform_rand();
+    Vec3 center(-9 + 18 * uniform_rand(), 0.2f, -9 + 18 * uniform_rand());
+      
+    if (choose_mat < .7f)
+    {
+      objects.push_back(new Sphere(center, 0.2f, new Lambertian(Vec3(
+        uniform_rand()*uniform_rand(), uniform_rand()*uniform_rand(), uniform_rand()*uniform_rand()
+      ))));
+    }
+    else if (choose_mat < 0.85f)
+      objects.push_back(new Sphere(center, 0.2f, new Metal(Vec3(
+        0.5f * (1 + uniform_rand()), 0.5f * (1 + uniform_rand()), 0.5f * (1 + uniform_rand())
+      ), 0.5f * uniform_rand())));
+    else
+      objects.push_back(new Sphere(center, .2f, new Dielectric(1.5f)));
+  }
+
+  objects.push_back(new Sphere(Vec3(0, 1, 0), 1.0f, new Dielectric(1.5f)));
+  objects.push_back(new Sphere(Vec3(-4, 1, 0), 1.0f, new Lambertian(Vec3(.4f, .2f, .1f))));
+  objects.push_back(new Sphere(Vec3(4, 1, 0), 1.0f, new Metal(Vec3(.7f, .6f, .5f), 1)));
+   
+  shared_thread_data.data_security.lock();
+  Vec3 camera_pos(10, 2, -3);
+  Camera camera(camera_pos, pi * .9f, -pi * .05f, 7);
+  camera.lens_radius = 0.08f;
 
   for (int h = 0; h < shared_frame.height; ++h)
   {
     if (shared_thread_data.terminate_requested)
     {
+      for (auto iter = objects.begin(); iter != objects.end(); ++iter)
+        delete *iter;
       shared_thread_data.data_security.unlock();
       return;
     }
@@ -373,5 +410,8 @@ void thread_renderer()
       shared_frame.pixel_buffer[h * shared_frame.width + w].b = int(255.99 * pixel_color.b);
     }
   }
+  
+  for (auto iter = objects.begin(); iter != objects.end(); ++iter)
+    delete *iter;
   shared_thread_data.data_security.unlock();
 }
