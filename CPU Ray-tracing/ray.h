@@ -2,15 +2,13 @@
 
 #include "vector.h"
 
-union Ray
+struct Ray
 {
-  struct
-  {
-    Vec3 origin, direction;
-  };
+  Vec3 origin, direction;
+  float time;
 
   inline Ray() {}
-  Ray(const Vec3& origin, const Vec3& direction);
+  inline Ray(const Vec3& origin, const Vec3& direction, float time) : origin(origin), direction(direction.normalized()), time(time) {}
 
-  Vec3 at(float t) const;
+  inline Vec3 at(float t) const { return origin + t * direction; }
 };

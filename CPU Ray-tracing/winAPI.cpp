@@ -41,6 +41,8 @@ struct ThreadData shared_thread_data;
 
 static LARGE_INTEGER fixed_frequency;
 const float framerate_target_dt = .016f;
+const float t_min = 0.001f;
+const float t_max = 100000;
 
 int CALLBACK WinMain(HINSTANCE h_instance, HINSTANCE, LPSTR, int)
 {
@@ -248,7 +250,7 @@ void RequestThreadRendering(HDC& temp_hdc, unsigned char clear_value)
   shared_thread_data.thread_renderer = std::thread(thread_renderer);
 }
 
-Camera::Camera(const Vec3& position, float theta, float phi, float focus_dist) : position(position), focus_dist(focus_dist)
+Camera::Camera(const Vec3& position, float theta, float phi, float focus_dist, float time_from, float time_to) : position(position), focus_dist(focus_dist), time_from(time_from), time_to(time_to)
 {
   look = { cosf(phi) * cosf(theta), tanf(phi), cosf(phi) * sinf(theta) };
 
@@ -274,6 +276,21 @@ Camera::Camera(const Vec3& position, float theta, float phi, float focus_dist) :
   bottom_left = quad_center - horizontal * .5f - vertical * .5f;
 }
 
+bool BoundingBox(const std::vector<Object*>& objects, float t0, float t1, AABB& aabb)
+{
+  if (objects.size() < 1) return false;
+  AABB temp_aabb;
+  bool first_true = objects[0]->bounding_box(t0, t1, temp_aabb);
+  if (!first_true) return false;
+  else aabb = temp_aabb;
+
+  for (int i = 1; i < objects.size(); ++i)
+    if (objects[i]->bounding_box(t0, t1, temp_aabb))
+      aabb = aabb + temp_aabb;
+
+  return true;
+}
+
 Vec3 Camera::random_in_unit_disk()
 {
   Vec3 p;
@@ -288,30 +305,22 @@ Ray Camera::get_ray(float du, float dv)
 {
   Vec3 rd = lens_radius * random_in_unit_disk();
   Vec3 offset = right * rd.x + up * rd.y;
-  return Ray(position + offset, bottom_left + du * horizontal + dv * vertical - position - offset);
+  return Ray(position + offset,
+    bottom_left + du * horizontal + dv * vertical - position - offset,
+    time_from + uniform_rand() * (time_to - time_from));
 }
 
-Color compute_raycast(const std::vector<Object*>& objects, const Ray& r, int depth)
+Color compute_raycast(BVHnode& bvhnode, const Ray& r, int depth)
 {
-  const float t_min = 0.001f;
-  const float t_max = 1000;
-
   HitRecord record;
-  bool is_hit = false;
-  float closest_t = t_max;
-  for (auto iter = objects.begin(); iter != objects.end(); ++iter)
-    if ((*iter)->hit(r, t_min, closest_t, record))
-    {
-      is_hit = true;
-      closest_t = record.t;
-    }
+  bool is_hit = bvhnode.hit(r, t_min, t_max, record);
 
   if (is_hit)
   {
     Ray scattered;
     Color attenuation;
     if (depth < 50 && record.material_ptr->scatter(r, record, attenuation, scattered))
-      return attenuation * compute_raycast(objects, scattered, depth + 1);
+      return attenuation * compute_raycast(bvhnode, scattered, depth + 1);
     return Vec3(0);
   }
 
@@ -320,38 +329,13 @@ Color compute_raycast(const std::vector<Object*>& objects, const Ray& r, int dep
   return (1.0f - t) * Vec3(1) + t * Vec3(.5f, .7f, 1.0f);
 }
 
-void previous_scene_set_ups()
-{
-  /*
-  Sphere sphere(Vec3(0, 0, 1), .5f, new Lambertian(Vec3(.8f, .3f, .3f)));
-  Sphere left_sphere(Vec3(-.9f, -.1f, .9f), .4f, new Metal(Vec3(.8f, .8f, 0.8f), .8f));
-  Sphere right_sphere(Vec3(1.2f, 0.1f, 1.1f), .6f, new Metal(Vec3(.8f, .6f, 0.2f), .2f));
-  Sphere glass_sphere(Vec3(-.4f, -.3f, .5f), .2f, new Dielectric(1.5f));
-  Sphere bubble_inner(Vec3(.3f, -.05f, -0.2f), -.1f, new Dielectric(1.8f));
-  Sphere bubble_outer(Vec3(.3f, -.05f, -0.2f), .101f, new Dielectric(1.8f));
-  Sphere ground(Vec3(0, -100.5f, 1), 100, new Lambertian(Vec3(.8f, .8f, 0)));
-  std::vector<Object*> objects;
-  objects.reserve(7);
-  objects.push_back(&sphere);
-  objects.push_back(&left_sphere);
-  objects.push_back(&right_sphere);
-  objects.push_back(&glass_sphere);
-  objects.push_back(&bubble_inner);
-  objects.push_back(&bubble_outer);
-  objects.push_back(&ground);
-
-  shared_thread_data.data_security.lock();
-  Vec3 camera_pos(-1, 1, 0);
-  Camera camera(camera_pos, pi * .25f, pi * -.2f, (sphere.center - camera_pos).length() - .2f);
-  camera.lens_radius = 0.1f;*/
-}
-
 void thread_renderer()
 {
   int n = 204;
   std::vector<Object*> objects;
   objects.reserve(n);
   objects.push_back(new Sphere(Vec3(0,-1000,0), 1000, new Lambertian(Vec3(0.5f))));
+   
   for(int i = 0; i < 200; ++i)
   {
     float choose_mat = uniform_rand();
@@ -359,7 +343,7 @@ void thread_renderer()
       
     if (choose_mat < .7f)
     {
-      objects.push_back(new Sphere(center, 0.2f, new Lambertian(Vec3(
+      objects.push_back(new MovingSphere(center, center + Vec3(0,.2f, 0), 0, 1, 0.2f, new Lambertian(Vec3(
         uniform_rand()*uniform_rand(), uniform_rand()*uniform_rand(), uniform_rand()*uniform_rand()
       ))));
     }
@@ -370,14 +354,16 @@ void thread_renderer()
     else
       objects.push_back(new Sphere(center, .2f, new Dielectric(1.5f)));
   }
-
+  
   objects.push_back(new Sphere(Vec3(0, 1, 0), 1.0f, new Dielectric(1.5f)));
   objects.push_back(new Sphere(Vec3(-4, 1, 0), 1.0f, new Lambertian(Vec3(.4f, .2f, .1f))));
   objects.push_back(new Sphere(Vec3(4, 1, 0), 1.0f, new Metal(Vec3(.7f, .6f, .5f), 1)));
-   
+  
+  BVHnode root(objects, 0, objects.size(), t_min, t_max);
+
   shared_thread_data.data_security.lock();
   Vec3 camera_pos(10, 2, -3);
-  Camera camera(camera_pos, pi * .9f, -pi * .05f, 7);
+  Camera camera(camera_pos, pi * .9f, -pi * .05f, 7, 0, 1);
   camera.lens_radius = 0.08f;
 
   for (int h = 0; h < shared_frame.height; ++h)
@@ -394,13 +380,13 @@ void thread_renderer()
     {
       Color pixel_color(0);
 
-      const int AA_sample_count = 200;
+      const int AA_sample_count = 2000;
       for (int AA_sample_iter = 0; AA_sample_iter < AA_sample_count; ++AA_sample_iter)
       {
         float du = (w + uniform_rand()) / float(shared_frame.width);
         float dv = (shared_frame.height - h + uniform_rand()) / float(shared_frame.height);
 
-        pixel_color += compute_raycast(objects, camera.get_ray(du, dv), 0);
+        pixel_color += compute_raycast(root, camera.get_ray(du, dv), 0);
       }
       pixel_color /= float(AA_sample_count);
       pixel_color = Vec3(sqrtf(pixel_color.x), sqrtf(pixel_color.y), sqrtf(pixel_color.z));

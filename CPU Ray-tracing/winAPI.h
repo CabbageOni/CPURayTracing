@@ -63,12 +63,13 @@ private:
   Vec3 up, right, look;
   Vec3 random_in_unit_disk();
   float focus_dist;
+  float time_from, time_to;
 
 public:
   Vec3 position;
   float lens_radius = 0;
 
-  Camera(const Vec3& position, float theta, float phi, float focus_dist);
+  Camera(const Vec3& position, float theta, float phi, float focus_dist, float time_from, float time_to);
 
   Ray get_ray(float du, float dv);
 };

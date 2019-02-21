@@ -60,6 +60,11 @@ Vec3 Vec3::operator/(float rhs) const
   return Vec3(x / rhs, y / rhs, z / rhs);
 }
 
+float Vec3::operator[](int index) const
+{
+  return data[index];
+}
+
 Vec3& Vec3::operator+=(const Vec3& rhs)
 {
   x += rhs.x;

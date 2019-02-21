@@ -28,6 +28,7 @@ union Vec3
   Vec3 operator+(const Vec3& rhs) const;
   Vec3 operator-(const Vec3& rhs) const;
   Vec3 operator/(float rhs) const;
+  float operator[](int index) const;
 
   Vec3& operator+=(const Vec3& rhs);
   Vec3& operator/=(float rhs);
